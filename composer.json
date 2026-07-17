@@ -1,0 +1,27 @@
+{
+  "name": "openeuropa/oe_testing_utils",
+  "homepage": "https://github.com/openeuropa/oe_testing_utils",
+  "description": "Testing utilities for OpenEuropa projects",
+  "type": "library",
+  "license": "EUPL-1.2",
+  "minimum-stability": "dev",
+  "prefer-stable": true,
+  "require": {
+    "php": ">=8.3"
+  },
+  "require-dev": {
+    "openeuropa/code-review": "^2.0.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "OpenEuropa\\TestingUtilities\\": "./src/"
+    }
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": {
+      "dealerdirect/phpcodesniffer-composer-installer": true,
+      "phpro/grumphp": true
+    }
+  }
+}

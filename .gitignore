@@ -1,0 +1,5 @@
+/vendor/
+grumphp.yml
+composer.lock
+/.idea/
+docker-compose.*.yml
