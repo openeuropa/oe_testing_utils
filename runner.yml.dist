@@ -1,0 +1,44 @@
+drupal:
+  root: "build"
+  base_url: "http://web:8080/build"
+  site:
+    name: "OpenEuropa"
+    profile: "minimal"
+  database:
+    host: "mysql"
+    port: "3306"
+    name: "drupal"
+    user: "root"
+    password: ""
+  post_install:
+    # Prepare the instance.
+    - { task: "exec", command: "./vendor/bin/drush en toolbar -y" }
+    - { task: "exec", command: "./vendor/bin/drush theme:enable olivero -y" }
+    - { task: "exec", command: "./vendor/bin/drush theme:enable claro -y" }
+    - { task: "exec", command: "./vendor/bin/drush config-set system.theme default olivero -y" }
+    - { task: "exec", command: "./vendor/bin/drush config-set system.theme admin claro -y" }
+    - { task: "exec", command: "./vendor/bin/drush config-set node.settings use_admin_theme 1 -y" }
+    # Enable the modules.
+    - { task: "exec", command: "./vendor/bin/drush cr" }
+  additional_settings: |
+      $settings['file_scan_ignore_directories'] = array('vendor', 'build');
+      $settings['file_private_path'] = 'sites/default/files/private';
+
+selenium:
+  host: "http://selenium"
+  port: "4444"
+  browser: "chrome"
+
+commands:
+  drupal:site-setup:
+    - { task: "run", command: "drupal:settings-setup" }
+  toolkit:code-review:
+    - { task: "exec", command: "./vendor/bin/grumphp run --verbose" }
+
+toolkit:
+  build:
+    custom-code-folder: '${drupal.root}/modules/custom'
+  lint:
+    eslint:
+      options_yaml: 'no-error-on-unmatched-pattern'
+      options_js: 'no-error-on-unmatched-pattern'
