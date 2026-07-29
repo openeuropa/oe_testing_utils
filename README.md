@@ -12,6 +12,14 @@ composer require --dev openeuropa/oe_testing_utils
 
 ## Usage
 
+### PhpUnitBatchesCommands
+
+Adds support to run phpunit in batches and asserts that all phpunit tests are assigned to a batch.
+
+```bash
+./vendor/bin/run toolkit:test-phpunit-batches
+```
+
 ### CachedDatabaseInstallTrait
 
 Speeds up Drupal functional tests by caching the post-install database state. The
