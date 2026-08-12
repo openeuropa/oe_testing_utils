@@ -6,7 +6,9 @@ namespace OpenEuropa\TestingUtilities\Traits;
 
 use Drupal\Core\Database\Database;
 use Drupal\Core\File\FileSystemInterface;
+use Drupal\FunctionalJavascriptTests\WebDriverTestBase;
 use Drupal\user\Entity\User;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Caches the post-install database state to speed up functional tests.
@@ -19,6 +21,22 @@ use Drupal\user\Entity\User;
  * Set $this->cacheDbInstall = TRUE to enable.
  */
 trait CachedDatabaseInstallTrait {
+
+  /**
+   * Core JS test-helper modules that WebDriverTestBase adds on top of $modules.
+   *
+   * These are installed for every cached-install test (functional and
+   * JavaScript alike) and excluded from the cache fingerprint, so that a single
+   * dump per declared-module set is valid for both a functional test and a
+   * JavaScript test that declare the same modules.
+   *
+   * @see \Drupal\FunctionalJavascriptTests\WebDriverTestBase::installModulesFromClassProperty()
+   */
+  protected const TEST_HELPER_MODULES = [
+    'js_testing_ajax_request_test',
+    'js_testing_log_test',
+    'css_disable_transitions_test',
+  ];
 
   /**
    * Whether to use the cached database install.
@@ -55,6 +73,19 @@ trait CachedDatabaseInstallTrait {
     else {
       $this->dumpDatabase();
     }
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function installModulesFromClassProperty(ContainerInterface $container) {
+    // Install the JS test modules for functional tests too so the resulting
+    // cached dump is interchangeable between a functional test and a JavaScript
+    // test that declare the same modules.
+    if (!$this instanceof WebDriverTestBase) {
+      self::$modules = array_values(array_unique(array_merge(self::$modules, self::TEST_HELPER_MODULES)));
+    }
+    parent::installModulesFromClassProperty($container);
   }
 
   /**
@@ -99,10 +130,6 @@ trait CachedDatabaseInstallTrait {
     $user->setPassword($this->rootUser->pass_raw);
     $user->save();
 
-    // Cache tables (cache_*) were captured in the dump and contain entries
-    // keyed to the first test's container/site — stale for this test. Flushing
-    // rebuilds routes, discovery, and clears all cache bins.
-    drupal_flush_all_caches();
     $this->container = \Drupal::getContainer();
   }
 
@@ -121,17 +148,44 @@ trait CachedDatabaseInstallTrait {
       throw new \RuntimeException(sprintf('No tables found to dump for prefix %s.', $this->databasePrefix));
     }
 
+    // The contents of the cache tables are specific to the site/container that
+    // created the dump and would be stale when restored under another test.
+    // Dump their structure only, so they are restored empty and Drupal
+    // repopulates them on demand. This also keeps the dump small and fast.
+    $cache_tables = array_filter($tables, fn (string $table): bool => str_starts_with($table, $this->databasePrefix . 'cache'));
+    $data_tables = array_diff($tables, $cache_tables);
+
+    $args = $this->mysqlClientArgs($default);
+    $dumps = [];
+    if ($data_tables) {
+      $dumps[] = sprintf('mysqldump --no-tablespaces %s %s', $args, implode(' ', array_map('escapeshellarg', $data_tables)));
+    }
+    if ($cache_tables) {
+      $dumps[] = sprintf('mysqldump --no-tablespaces --no-data %s %s', $args, implode(' ', array_map('escapeshellarg', $cache_tables)));
+    }
+
+    // Write to a unique temporary file and then rename it into place. Why?
+    // Tests run in parallel against this shared dump directory, so a
+    // plain redirect onto the final path would let two processes that both
+    // install and dump try to save their mysqldump output into the same
+    // file and corrupt it. rename() on the same filesystem is atomic: readers
+    // always see a complete file, and racing writers at worst repeat an
+    // install, never produce a half-written dump.
+    $tmp = sprintf('%s.%d.%s.tmp', $this->dumpFile, getmypid(), uniqid());
     $command = sprintf(
-      'mysqldump --no-tablespaces %s %s | sed %s > %s',
-      $this->mysqlClientArgs($default),
-      implode(' ', array_map('escapeshellarg', $tables)),
+      '{ %s ; } | sed %s > %s',
+      implode(' ; ', $dumps),
       escapeshellarg("s/{$this->databasePrefix}/default_db_prefix_/g"),
-      escapeshellarg($this->dumpFile)
+      escapeshellarg($tmp)
     );
     exec($command, $output, $status);
     if ($status !== 0) {
-      @unlink($this->dumpFile);
+      @unlink($tmp);
       throw new \RuntimeException(sprintf('mysqldump failed with status %d.', $status));
+    }
+    if (!@rename($tmp, $this->dumpFile)) {
+      @unlink($tmp);
+      throw new \RuntimeException(sprintf('Failed to publish database dump to %s.', $this->dumpFile));
     }
   }
 
@@ -167,6 +221,12 @@ trait CachedDatabaseInstallTrait {
       }
       $class = get_parent_class($class);
     }
+    // The JS test-helper modules are installed for every test (see
+    // ::installModulesFromClassProperty()) and core's WebDriverTestBase leaks
+    // them into the shared static $modules slot mid-run. Excluding them keeps
+    // the fingerprint identical for a functional test and a JavaScript test
+    // with the same declared modules.
+    $modules = array_diff($modules, self::TEST_HELPER_MODULES);
     $modules = array_unique($modules);
     sort($modules);
 
