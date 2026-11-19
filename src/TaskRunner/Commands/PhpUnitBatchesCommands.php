@@ -22,9 +22,15 @@ class PhpUnitBatchesCommands extends AbstractCommands {
    */
   public function toolkitTestPhpunitBatches() {
     $collection = $this->collectionBuilder();
-    $batches = $this->getConfig()->get('toolkit.test.phpunit.batches');
+    $phpunit_config = $this->getConfig()->get('toolkit.test.phpunit');
+    $batches = $phpunit_config['batches'] ?? NULL;
     if (empty($batches) || !is_array($batches)) {
       throw new AbortTasksException('No batches defined in toolkit.test.phpunit.batches configuration.');
+    }
+
+    // Execute a list of commands to run before the tests.
+    if (!empty($phpunit_config['commands']['before'])) {
+      $collection->addTask($this->taskExecute($phpunit_config['commands']['before']));
     }
 
     $this->say('Trying to run tests that are not assigned to any batch...');
@@ -76,6 +82,12 @@ class PhpUnitBatchesCommands extends AbstractCommands {
     }
 
     $collection->addTask($parallel);
+
+    // Execute a list of commands to run after the tests.
+    if (!empty($phpunit_config['commands']['after'])) {
+      $collection->addTask($this->taskExecute($phpunit_config['commands']['after']));
+    }
+
     return $collection;
   }
 
